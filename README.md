@@ -1,4 +1,4 @@
-# Vowel and Consonant Sensitivity in L2 Speech Processing
+# Visual Analog Scale Vs Word Reconstruction
 
 ![Poster Preview](ISB_25_poster-final2.png)
 
