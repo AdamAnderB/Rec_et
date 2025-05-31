@@ -1,6 +1,8 @@
 # Vowel and Consonant Sensitivity in L2 Speech Processing
 
 ![Poster Preview](ISB_25_poster-final.png)
+[View the Poster (PDF)](ISB_25_poster-final.pdf)
+
 
 This repository contains the analysis for a study investigating how first and second language users respond to phonological changes in real-time speech perception. The focus is on how lexical decision behavior and reaction time are influenced by **vowel vs. consonant changes**, and how **L2 lexical proficiency** (as indexed by LexTALE scores) predicts sensitivity to these contrasts.
 
