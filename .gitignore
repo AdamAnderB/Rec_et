@@ -6,3 +6,7 @@
 
 *             # ignore all files
 !work_flow.Rmd  # except this file
+!scripts/
+!scripts/work_flow.Rmd
+!scripts/visuals/
+!scripts/visuals/**
