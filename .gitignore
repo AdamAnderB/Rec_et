@@ -1,0 +1,8 @@
+# RStudio files to ignore
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+*             # ignore all files
+!work_flow.Rmd  # except this file

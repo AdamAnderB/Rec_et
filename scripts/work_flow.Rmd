@@ -1,0 +1,575 @@
+---
+title: "work_flow"
+author: "Adam A. Bramlett"
+date: "2024-11-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(psycho)
+library(tidyr)
+library(ltm)
+library(ggplot2)
+library(ggExtra)
+library(dplyr)
+library(cowplot)
+library(patchwork)
+library(conflicted)
+#ltm and dplyr use select when I need ltm select I use the :: for specification
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
+```
+
+```{r}
+#behaviorial
+#l1
+data_path_l1 <- "../../data/data_exp_198543-v3/"
+file_list_l1 <- list.files(data_path_l1)
+
+file_name_l1 <- "data_exp_198543-v3_task-tzya.csv"
+file_path_l1 <- paste0(data_path_l1, file_name_l1)
+
+#l2
+data_path_l2 <- "../../data/data_exp_198547-v3/"
+file_list_l2 <- list.files(data_path_l2)
+
+file_name_l2 <- "data_exp_198547-v3_task-tzya.csv"
+file_path_l2 <- paste0(data_path_l2, file_name_l2)
+
+# Read the CSV file
+data_l1 <- read.csv(file_path_l1)%>%
+  mutate(language="first")
+
+data_l2 <- read.csv(file_path_l2)%>%
+  mutate(language="second")
+
+data<-rbind(data_l1,data_l2)%>%
+  rename_with(tolower)
+
+
+#lexTALE
+file_name_l1_lextale <- "data_exp_198543-v3_task-7rl4.csv"
+file_path_l1_lextale <- paste0(data_path_l1, file_name_l1_lextale)
+
+
+file_name_l2_lextale <- "data_exp_198547-v3_task-7rl4.csv"
+file_path_l2_lextale <- paste0(data_path_l2, file_name_l2_lextale)
+
+
+lextale_l1 <- read.csv(file_path_l1_lextale)%>%
+  mutate(language="first",
+         outcome=response)%>%
+  select(-response)
+
+lextale_l2 <- read.csv(file_path_l2_lextale)%>%
+  mutate(language="second",
+         outcome=response)%>%
+  select(-response)
+
+lextale<-rbind(lextale_l1,lextale_l2)%>%
+  rename_with(tolower)
+
+#et data
+# List all .xlsx files in the uploads folder
+uploads_path <- paste0(data_path_l1, "uploads/")
+file_list <- list.files(uploads_path, pattern = "\\.xlsx$", full.names = TRUE)
+et_data_l1 <- bind_rows(lapply(file_list, read_excel))
+
+uploads_path <- paste0(data_path_l2, "uploads/")
+file_list <- list.files(uploads_path, pattern = "\\.xlsx$", full.names = TRUE)
+et_data_l2 <- bind_rows(lapply(file_list, read_excel))
+
+et_data<-rbind(et_data_l1,et_data_l2)%>%
+  rename_with(tolower)
+```
+create removal dataframe
+```{r}
+removal <- data.frame(Language = character(), 
+                      Started_With = numeric(), 
+                      Removed = numeric(), 
+                      Remaining = numeric(), 
+                      stringsAsFactors = FALSE)
+```
+
+```{r}
+library(dplyr)
+
+lextale_tidy<-lextale%>%
+  select(participant.private.id,screen.name,zone.type,reaction.time,item,correct,response,language)%>%
+  filter(zone.type=="response_keyboard")%>%
+  filter(reaction.time>250)
+
+lextale_tidy%>%ggplot(aes(x=reaction.time))+geom_histogram()
+
+lextale_agg <- lextale_tidy %>%
+  mutate(
+    word_correct = if_else(response == "word" & correct == 1, 1, 0),
+    nonword_correct = if_else(response == "non" & correct == 1, 1, 0))%>%
+  group_by(participant.private.id,language)%>%
+  summarize(word_accuracy = sum(word_correct) / n_distinct(item[response == "word"]) * 100,
+            nonword_accuracy = sum(nonword_correct) / n_distinct(item[response == "non"]) * 100,
+            .groups = 'drop')%>%
+  mutate(lextale_score = (word_accuracy + nonword_accuracy) / 2)%>%
+  select(participant.private.id, lextale_score, language)
+
+lextale_cb <- lextale_tidy %>%
+  select(-reaction.time) %>%
+  pivot_wider(names_from = item, values_from = correct) %>%
+  select(-participant.private.id)%>%
+  mutate(across(everything(), ~replace_na(., 0)))
+
+lextale_cb_a<-cronbach.alpha(lextale_cb)$alpha
+lextale_cb_a
+
+lextale_agg%>%ggplot(aes())+
+  geom_histogram(aes(x=lextale_score,fill=language),alpha=.3,position = "identity")
+```
+
+#behaviorial
+```{r}
+data_clean<-data%>%
+  filter(zone.name=="Zone3")%>%
+  filter(display=="Main")%>%
+  left_join(lextale_agg)
+
+data_clean_end <- data_clean %>%
+  filter(zone.type == "response_slider_endValue") %>%
+  mutate(response = as.numeric(response) - 500
+         ,direction = case_when(
+    response < 0 ~ "left",
+    response > 0 ~ "right",
+    response == 0 ~ "center"))%>%
+  filter(direction != "center")%>%
+  mutate(word_selection = case_when(direction == "left" ~ left_word,
+                                    direction == "right" ~ right_word)) %>%
+  filter(attention == "real")%>%
+  mutate(
+    change_type = if_else(word_selection == vowel, "vowel_change", "consonant_change"),
+    participant_id = participant.private.id,
+    spreadsheet_row = spreadsheet.row)%>%
+  filter(experimental != "filler")%>%
+  mutate(response_normalised = if_else(left_position == "V", response * -1, response))
+
+# Define colors
+deep_blue <- "#9D2931"
+bright_orange <- "#9D2931"
+soft_blue <- "#469CDD"
+muted_orange <- "#469CDD"
+
+# Create the scatter plot
+p_scatter <- data_clean_end%>%mutate(language = factor(language, 
+                           levels = c("first", "second"),
+                           labels = c("English", "Mandarin")),
+         change_type = factor(change_type, 
+                           levels = c("vowel_change", "consonant_change"),
+                           labels = c("Vowel Change", "Consonant Change"))) %>%ggplot(aes(x = response_normalised, y = log(reaction.time), color = change_type)) +
+  
+  geom_point(size = 0.5, alpha = 0.6) +
+  labs(x = "Consonant choices          Vowel choices|Consonant choices          Vowel choices", y = "Log(Reaction Time)") +
+  scale_color_manual(values = c(bright_orange, soft_blue))+
+  theme_linedraw() +
+  theme(
+    #strip.text = element_blank(),
+    legend.position = "none",
+    plot.margin = unit(c(0, 1, 0, -0.5), "lines"))+
+  facet_grid(.~language)
+
+p_scatter
+```
+
+```{r}
+# Create the boxplot for the x-axis
+p_boxplot_x <- ggplot(data_clean_end, aes(x = response_normalised, color = change_type)) +
+  geom_density(alpha = 0.5,width=.1,fill=NA) +
+  labs(x = "/n", y = "    ") +
+  scale_color_manual(values = c(soft_blue,bright_orange))+
+  theme_minimal() +
+  theme(
+    strip.text = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(), 
+    axis.line = element_blank(),    
+    legend.position = "none",
+    plot.margin = unit(c(0, 1, 0, 1), "lines"))+
+  facet_grid(.~language)
+
+p_boxplot_x
+
+# Create the density plot for the y-axis
+p_density_y_left <- ggplot(data_clean_end%>%filter(language=="first"), aes(y = log(reaction.time), color = change_type)) +
+  geom_density(fill=NA) +
+  scale_color_manual(values = c(bright_orange, soft_blue))+
+  theme_minimal() +
+  scale_x_reverse()+
+  labs(title = NULL)+
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(), 
+    axis.line = element_blank(),    
+    legend.position = "none",
+    plot.margin = unit(c(0, 0, 1, 0), "lines"))
+
+p_density_y_right <- ggplot(data_clean_end%>%filter(language=="second"), aes(y = log(reaction.time), color = change_type)) +
+  geom_density(fill=NA) +
+  scale_color_manual(values = c(bright_orange, soft_blue))+
+  theme_minimal() +
+  labs(title = NULL)+
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(), 
+    axis.line = element_blank(),    
+    legend.position = "none",
+    plot.margin = unit(c(0, 0, 0, 0), "lines"))
+
+p_density_y_right
+
+#for legend
+p_density <- ggplot(data_clean_end, aes(y = log(reaction.time), fill = change_type)) +
+  geom_density(color=NA)+
+  scale_fill_manual(values = c(bright_orange, soft_blue))
+
+
+legend <- get_legend(
+  p_density+theme(legend.position = "none"))
+
+# Arrange the plots in a grid, with the legend in the empty spot
+final_plot <- plot_grid(
+  plot_spacer()+theme_minimal(),p_boxplot_x, legend,p_density_y_left, p_scatter, p_density_y_right,
+  ncol = 3, nrow = 2,
+  rel_heights = c(.75, 3),
+  rel_widths = c(.5, 3, .5),
+  align = "hv"
+)
+final_plot
+
+ggsave("rt_vas.png", width = 6, height = 4, dpi = 300)
+```
+
+
+
+```{r}
+data_clean_end_counts<-data_clean_end%>%group_by(change_type,participant_id,language)%>%count()
+
+data_clean_end_counts %>%
+  mutate(language = factor(language, 
+                           levels = c("first", "second"),
+                           labels = c("English", "Mandarin")),
+         change_type = factor(change_type, 
+                           levels = c("consonant_change","vowel_change"),
+                           labels = c("Consonant Change","Vowel Change"))) %>%
+  ggplot(aes(y = n, x = interaction(change_type), color = change_type)) +
+  geom_point() +
+  geom_line(aes(group = participant_id), color = "black", alpha = 0.5, size = 0.1) +
+  geom_boxplot(fill = NA, width = 0.25) +
+  geom_violin(fill = NA) +
+  scale_color_manual(name = "Change Type",
+                     values = c(soft_blue,bright_orange)) +
+  theme_linedraw() +
+  facet_grid(.~language) +
+  theme(legend.position = "top") +
+  xlab("")
+
+ggsave("end_counts_plot.png", width = 6, height = 4, dpi = 300)
+```
+
+```{r}
+View(data_clean_end)
+
+
+data_part_rt<-data_clean_end%>%
+  mutate(participant_id=participant.private.id)%>%
+  group_by(participant_id,change_type,lextale_score)%>%
+  summarize(mean_rt=mean(log(reaction.time)),
+            mean_vas=mean(response_normalised))
+
+count_rt<-data_clean_end_counts%>%
+  left_join(data_part_rt)
+  
+count_rt%>%ggplot(aes(y=mean_vas,x=lextale_score,color=interaction(change_type,language)))+
+  geom_point()+
+  geom_smooth(method="lm")
+
+```
+
+```{r}
+data_clean_end_item<-data_clean_end%>%
+  group_by(sound,change_type,language)%>%
+  count()%>%
+  mutate(n=n/30)%>%
+  filter(change_type=="consonant_change")
+
+
+data_clean_end_item%>%ggplot(aes(x=interaction(sound),y=n))+
+  geom_point(aes(color=language))+
+  geom_line(aes(group=interaction(sound,change_type)))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+data_clean_end_item%>%ggplot(aes(x=language,y=n))+
+  geom_boxplot(fill=NA)+
+  geom_violin(fill=NA)
+
+```
+
+
+```{r}
+
+data_clean_end_model<-data_clean_end%>%
+  mutate(
+    item = as.factor(sound),
+    language = factor(language, levels = c("first", "second")), 
+    language = recode(language, "first" = "English", "second" = "Mandarin"),
+    language = relevel(language, ref = "English"), 
+    change_type = factor(change_type, levels = c("consonant_change", "vowel_change")),
+    change_type = recode(change_type, 
+                         "consonant_change" = "Consonant", 
+                         "vowel_change" = "Vowel"),
+    change_type = relevel(change_type, ref = "Consonant"), 
+    log.rt = log(reaction.time),
+    participant_id=as.factor(participant_id),
+    abs_response_normalised=abs(response_normalised))
+
+levels(data_clean_end_model$language)
+levels(data_clean_end_model$change_type)
+
+
+levels(data_clean_end_model$language)<-c("English","Mandarin")
+levels(data_clean_end_model$change_type)<-c("Consonant","Vowel")
+contrasts(data_clean_end_model$language)<-c(-.5,.5)
+contrasts(data_clean_end_model$change_type)<-c(-.5,.5)
+contrasts(data_clean_end_model$language)
+contrasts(data_clean_end_model$change_type)
+library(lme4)
+library(lmerTest)
+
+
+#category type
+choice_m1<-glmer(change_type~language+
+                (lextale_score|participant_id)+(1|item),
+                 data=data_clean_end_model,family="binomial",
+                 control = glmerControl(
+                   optimizer = "bobyqa",
+                   optCtrl = list(maxfun = 10000),
+                   check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+choice_m2<-glmer(change_type~language+
+            (1|participant_id)+(1|item),
+            data=data_clean_end_model,family="binomial",
+            control = glmerControl(
+              optimizer = "bobyqa",
+              optCtrl = list(maxfun = 10000),
+              check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+summary(choice_m1)
+summary(choice_m2)
+
+#rt models
+rt_m1<-lmer(log.rt~language*change_type+
+              (lextale_score|participant_id)+(change_type|item),
+            data=data_clean_end_model,
+            control = lmerControl(
+              optimizer = "bobyqa",
+              optCtrl = list(maxfun = 10000),
+              check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+rt_m2<-lmer(log.rt~language*change_type+
+              (1|participant_id)+(1|item),
+            data=data_clean_end_model,
+            control = lmerControl(
+              optimizer = "bobyqa",
+              optCtrl = list(maxfun = 10000),
+              check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+rt_m3<-lmerTest::lmer(log.rt~language+change_type+
+              (1|participant_id)+(1|item),
+            data=data_clean_end_model,
+            control = lmerControl(
+              optimizer = "bobyqa",
+              optCtrl = list(maxfun = 10000),
+              check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+summary(rt_m1)
+summary(rt_m2)
+summary(rt_m3)
+
+#vas models
+vas_m1<-lmer(response_normalised~language*change_type+change_type* lextale_score+
+              (lextale_score|participant_id)+(change_type|item),
+            data=data_clean_end_model,
+            control = lmerControl(
+              optimizer = "bobyqa",
+              optCtrl = list(maxfun = 10000),
+              check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+vas_m2<-lmer(response_normalised~language*change_type+change_type* lextale_score+
+              (1|participant_id)+(change_type|item),
+            data=data_clean_end_model,
+            control = lmerControl(
+              optimizer = "bobyqa",
+              optCtrl = list(maxfun = 10000),
+              check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+language*change_type+change_type* lextale_score
+
+
+vas_m3<-lmerTest::lmer(response_normalised~language*change_type+change_type* lextale_score+
+              (1|participant_id)+(1|item),
+            data=data_clean_end_model,
+            control = lmerControl(
+              optimizer = "bobyqa",
+              optCtrl = list(maxfun = 10000),
+              check.conv.grad = .makeCC("warning", tol = 1e-3)))
+
+summary(vas_m1)
+summary(vas_m2)
+summary(vas_m3)
+
+```
+
+```{r}
+View(model_summary_choice) 
+library(stringr)
+summary(choice_m2)
+#choice
+model_summary_choice <- broom.mixed::tidy(choice_m2, effects = "fixed", conf.int = TRUE) %>%
+  mutate(
+    stars = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ ""
+    ),
+    term = str_remove_all(term, "[0-9]")
+  )
+  
+
+ggplot(model_summary_choice, aes(x = term, y = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +  # ✅ confidence intervals
+  geom_text(aes(label = stars, y = conf.high + 0.05), size = 5)+
+  theme_minimal() +
+  ylab("Estimate") +
+  xlab("") +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "solid", color = "black")+
+  ggtitle("Choice model: glmer
+          change type ~ language +
+          (1|participant id) + (1|item)")
+
+ggsave("counts_model_plot.png", width = 8, height = 2, dpi = 300)
+
+#rt
+model_summary_rt <- broom.mixed::tidy(rt_m3, effects = "fixed", conf.int = TRUE)%>%
+  mutate(term = str_remove_all(term, "[0-9]"))%>%
+  mutate(term = str_replace(term, "_"," "))
+
+ggplot(model_summary_rt, aes(x = term, y = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  theme_minimal() +
+  ylab("Estimate") +
+  xlab("") +
+  geom_hline(yintercept = 0, linetype = "solid", color = "black")+
+  ggtitle(ggtitle("RT model: lmer
+          log.rt ~ language + change type +
+          (1|participant id) + (1|item)"))
+
+ggsave("rt_model_plot.png", width = 3.5, height = 7, dpi = 300)
+
+#vas
+model_summary <- broom.mixed::tidy(vas_m3, effects = "fixed",conf.int = TRUE) %>%
+  mutate(
+    stars = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ ""
+    )
+  )%>%
+  mutate(term = str_remove_all(term, "[0-9]"))%>%
+  mutate(term = str_replace(term, "_score"," "))%>%
+  mutate(term = str_replace(term, "_"," "))%>%
+  mutate(term = str_replace(term, "lextale","LexTALE"))
+
+ggplot(model_summary, aes(x = term, y = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  geom_text(aes(label = stars, y = 250), size = 5) +  # Adjust offset if needed
+  theme_minimal() +
+  ylab("Estimate") +
+  xlab("") +
+  geom_hline(yintercept = 0, linetype = "solid", color = "black")+
+  coord_flip() +
+  ggtitle("VAS model: lmer
+  VAS ~ language * change type + change type * lexTALE +
+  (1|participant id) + (1|item)")
+
+ggsave("vas_model_plot.png", width = 10, height = 2.5, dpi = 300)
+
+```
+
+```{r}
+data_agg_model<-data_clean_end_model%>%
+  group_by(change_type,participant_id,language)%>%
+  count()%>%
+  pivot_wider(names_from = change_type, values_from = n)%>%
+  mutate(bias=Vowel-Consonant)
+
+data_agg_model%>%ggplot(aes(x=language,y=bias))+
+  geom_boxplot(fill=NA)+
+  geom_violin(fill=NA)+
+  geom_jitter()
+  
+model <- lm(bias ~ language, data = data_agg_model)
+
+summary(model)
+```
+
+#et
+```{r}
+et_data_clean<-et_data%>%
+  filter(type=="prediction")%>%
+  select(time_stamp, participant_id,spreadsheet_row,time_stamp,time_elapsed,x_pred_normalised,y_pred_normalised,face_conf,screen_index)%>%
+  filter(face_conf>.5)%>%
+  filter(x_pred_normalised<1&x_pred_normalised>0&y_pred_normalised<1&y_pred_normalised>0)%>%
+  mutate(x_pred_normalised=x_pred_normalised-.5,
+         y_pred_normalised=y_pred_normalised-.5)
+
+all_data<-data_clean_end%>%
+  left_join(et_data_clean)%>%
+  group_by(spreadsheet_row, participant_id) %>%
+  mutate(
+    normalized_time_stamp = time_stamp - min(time_stamp)) %>%
+  ungroup()%>%
+  mutate(x_pred_normalised=if_else(left_position=="V",x_pred_normalised*-1,x_pred_normalised))%>%
+  mutate(looks_direction=if_else(x_pred_normalised>.5,left_word,right_word),
+         looks_type=if_else(looks_direction==vowel,"vowel","consonant"))%>%
+  filter(normalized_time_stamp<Reaction.Time)
+
+
+all_data%>%filter(experimental=="target")%>%ggplot(aes(y=x_pred_normalised,x=normalized_time_stamp,color=change_type,alpha=.5,group=interaction(spreadsheet_row,participant_id)))+
+  geom_line(size = .18)+
+  facet_wrap(change_type~participant_id)+
+  theme_minimal()
+
+
+```
