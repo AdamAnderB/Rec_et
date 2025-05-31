@@ -1,6 +1,6 @@
 # Vowel and Consonant Sensitivity in L2 Speech Processing
 
-![Poster Preview](ISB_25_poster-final.png)
+![Poster Preview](ISB_25_poster-final)
 [View the Poster (PDF)](ISB_25_poster-final.pdf)
 
 
